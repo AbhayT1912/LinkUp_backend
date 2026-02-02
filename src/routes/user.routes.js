@@ -203,7 +203,7 @@ router.post("/upload-avatar", async (req, res) => {
  *       200:
  *         description: Cover image uploaded successfully
  */
-router.post("/upload-cover", async (req, res) => {
+router.post("/upload-cover", protect, async (req, res) => {
   try {
     const { coverImage } = req.body;
     if (!coverImage) {
