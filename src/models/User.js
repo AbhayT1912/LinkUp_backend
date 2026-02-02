@@ -3,6 +3,11 @@ import bcrypt from "bcryptjs";
 
 const userSchema = new mongoose.Schema(
   {
+    name: {
+      type: String,
+      trim: true,
+      maxlength: 50,
+    },
     username: {
       type: String,
       required: true,
@@ -33,11 +38,32 @@ const userSchema = new mongoose.Schema(
       default: "",
       maxlength: 150,
     },
+    tagline: {
+      type: String,
+      maxlength: 80,
+      default: "",
+    },
+    location: {
+      type: String,
+      maxlength: 50,
+      default: "",
+    },
+    links: [
+      {
+        label: { type: String }, // LinkedIn, GitHub, etc
+        url: { type: String },
+      },
+    ],
 
     avatar: {
       type: String,
       default: "",
     },
+    coverImage: {
+      type: String,
+      default: "",
+    },
+
 
     isPrivate: {
       type: Boolean,

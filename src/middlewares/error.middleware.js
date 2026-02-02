@@ -9,6 +9,13 @@ const errorHandler = (err, req, res, next) => {
     ? res.statusCode
     : 500;
 
+  console.error("❌ Error:", {
+    statusCode,
+    message: err.message,
+    path: req.path,
+    body: req.body,
+  });
+
   res.status(statusCode).json({
     success: false,
     message: err.message,

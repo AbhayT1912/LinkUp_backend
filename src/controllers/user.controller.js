@@ -2,8 +2,17 @@ import asyncHandler from "../utils/asyncHandler.js";
 import User from "../models/User.js";
 import Notification from "../models/Notification.js";
 import { emitNotification } from "../socket.js";
+import { v2 as cloudinary } from "cloudinary";
 
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
+/* =========================
+   FOLLOW USER
+   ========================= */
 export const followUser = asyncHandler(async (req, res) => {
   const targetUserId = req.params.userId;
   const currentUserId = req.user._id.toString();
@@ -32,28 +41,26 @@ export const followUser = asyncHandler(async (req, res) => {
   await currentUser.save();
   await targetUser.save();
 
-   await Notification.create({
+  await Notification.create({
     recipient: targetUserId,
     actor: currentUserId,
     type: "follow",
   });
 
   emitNotification(targetUserId, {
-  type: "follow",
-  actor: {
-    id: currentUserId,
-    username: req.user.username,
-    avatar: req.user.avatar,
-  },
-});
-
+    type: "follow",
+    actor: {
+      _id: req.user._id,
+      username: req.user.username,
+      avatar: req.user.avatar,
+    },
+  });
 
   res.status(200).json({
     success: true,
     message: "User followed successfully",
   });
 });
-
 
 /* =========================
    SEARCH USERS
@@ -70,13 +77,10 @@ export const searchUsers = asyncHandler(async (req, res) => {
   }
 
   const users = await User.find({
-    username: {
-      $regex: q,
-      $options: "i", // case-insensitive
-    },
-    _id: { $ne: userId }, // exclude self
+    username: { $regex: q, $options: "i" },
+    _id: { $ne: userId },
   })
-    .select("username avatar bio")
+    .select("username name avatar bio tagline location")
     .limit(10);
 
   res.status(200).json({
@@ -86,8 +90,6 @@ export const searchUsers = asyncHandler(async (req, res) => {
   });
 });
 
-
-
 /* =========================
    UPDATE MY PROFILE
    ========================= */
@@ -95,15 +97,19 @@ export const updateMyProfile = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
   const {
+    name,
     username,
     email,
     bio,
     avatar,
     isPrivate,
     password,
+    tagline,
+    location,
+    links,
+    coverImage,
   } = req.body;
 
-  // Check for username/email conflicts (if provided)
   if (username) {
     const usernameTaken = await User.findOne({
       username,
@@ -127,19 +133,22 @@ export const updateMyProfile = asyncHandler(async (req, res) => {
   }
 
   const user = await User.findById(userId);
-
   if (!user) {
     res.status(404);
     throw new Error("User not found");
   }
 
-  // Update only provided fields
+  if (name !== undefined) user.name = name;
   if (username !== undefined) user.username = username;
   if (email !== undefined) user.email = email;
   if (bio !== undefined) user.bio = bio;
   if (avatar !== undefined) user.avatar = avatar;
+  if (tagline !== undefined) user.tagline = tagline;
+  if (location !== undefined) user.location = location;
+  if (links !== undefined) user.links = links;
+  if (coverImage !== undefined) user.coverImage = coverImage;
   if (isPrivate !== undefined) user.isPrivate = isPrivate;
-  if (password !== undefined) user.password = password; // auto-hashed by model
+  if (password !== undefined) user.password = password;
 
   const updatedUser = await user.save();
 
@@ -147,23 +156,30 @@ export const updateMyProfile = asyncHandler(async (req, res) => {
     success: true,
     message: "Profile updated successfully",
     user: {
-      id: updatedUser._id,
+      _id: updatedUser._id,
       username: updatedUser.username,
       email: updatedUser.email,
+      name: updatedUser.name,
       bio: updatedUser.bio,
       avatar: updatedUser.avatar,
+      tagline: updatedUser.tagline,
+      location: updatedUser.location,
+      links: updatedUser.links,
+      coverImage: updatedUser.coverImage,
       isPrivate: updatedUser.isPrivate,
+      followers: updatedUser.followers,
+      following: updatedUser.following,
+      createdAt: updatedUser.createdAt,
     },
   });
 });
-
 
 /* =========================
    GET MY FOLLOWERS
    ========================= */
 export const getMyFollowers = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id)
-    .populate("followers", "username avatar bio")
+    .populate("followers", "username name avatar bio")
     .select("followers");
 
   res.status(200).json({
@@ -173,14 +189,12 @@ export const getMyFollowers = asyncHandler(async (req, res) => {
   });
 });
 
-
-
 /* =========================
    GET MY FOLLOWING
    ========================= */
 export const getMyFollowing = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id)
-    .populate("following", "username avatar bio")
+    .populate("following", "username name avatar bio")
     .select("following");
 
   res.status(200).json({
@@ -189,8 +203,6 @@ export const getMyFollowing = asyncHandler(async (req, res) => {
     following: user.following,
   });
 });
-
-
 
 /* =========================
    UNFOLLOW USER
@@ -234,20 +246,18 @@ export const unfollowUser = asyncHandler(async (req, res) => {
   });
 });
 
-
+/* =========================
+   GET USER BY USERNAME
+   ========================= */
 export const getUserByUsername = asyncHandler(async (req, res) => {
   const { username } = req.params;
 
-  const user = await User.findOne({ username }).select(
-    "-password"
-  );
-
+  const user = await User.findOne({ username }).select("-password");
   if (!user) {
     res.status(404);
     throw new Error("User not found");
   }
 
-  // Basic private account handling (can be expanded later)
   if (user.isPrivate) {
     return res.status(200).json({
       success: true,
@@ -259,6 +269,10 @@ export const getUserByUsername = asyncHandler(async (req, res) => {
         isPrivate: true,
         followersCount: user.followers.length,
         followingCount: user.following.length,
+        name: user.name,
+        tagline: user.tagline,
+        location: user.location,
+        links: user.links,
       },
     });
   }
@@ -270,12 +284,41 @@ export const getUserByUsername = asyncHandler(async (req, res) => {
 });
 
 /* =========================
-   GET CURRENT USER PROFILE
+   UPLOAD AVATAR
    ========================= */
-export const getMyProfile = asyncHandler(async (req, res) => {
-  // req.user is already attached by auth middleware
+export const uploadAvatar = asyncHandler(async (req, res) => {
+  const { avatar } = req.body;
+  const userId = req.user._id;
+
+  if (!avatar) {
+    res.status(400);
+    throw new Error("No avatar image provided");
+  }
+
+  const result = await cloudinary.uploader.upload(avatar, {
+    folder: "avatars",
+  });
+
+  const updatedUser = await User.findByIdAndUpdate(
+    userId,
+    { avatar: result.secure_url },
+    { new: true }
+  );
+
   res.status(200).json({
     success: true,
-    user: req.user,
+    user: updatedUser,
+  });
+});
+
+/* =========================
+   GET MY PROFILE
+   ========================= */
+export const getMyProfile = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id).select("-password");
+
+  res.status(200).json({
+    success: true,
+    user,
   });
 });
