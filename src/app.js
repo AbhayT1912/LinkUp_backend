@@ -1,16 +1,19 @@
 import dotenv from "dotenv";
 dotenv.config();
+
 import express from "express";
+import helmet from "helmet";
+import cors from "cors";
+import rateLimit from "express-rate-limit";
+
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import postRoutes from "./routes/post.routes.js";
 import storyRoutes from "./routes/story.routes.js";
 import highlightRoutes from "./routes/highlight.routes.js";
 import notificationRoutes from "./routes/notification.routes.js";
-import helmet from "helmet";
-import cors from "cors";
-import rateLimit from "express-rate-limit";
 import messageRoutes from "./routes/message.routes.js";
+
 import swaggerUi from "swagger-ui-express";
 import swaggerSpec from "./config/swagger.js";
 
@@ -20,24 +23,19 @@ import errorHandler, {
 
 const app = express();
 
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
-
+/* =========================
+   BASIC CONFIG
+========================= */
 app.set("trust proxy", 1);
 
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-/* Health Check */
-app.get("/", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "LinkUp backend is running 🚀",
-  });
-});
-
-// Security headers
 app.use(helmet());
 
-// CORS - Allow frontend on 3000, 3001, 3002 (fallback ports)
+/* =========================
+   CORS CONFIG
+========================= */
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
@@ -60,34 +58,60 @@ app.use(
   })
 );
 
-// Rate limiting (basic DDOS protection)
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 min
-  max: 100, // per IP
+/* =========================
+   RATE LIMITERS
+========================= */
+
+// 🔐 STRICT limiter for auth routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // login/register attempts
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
-app.use(limiter);
+// 🌐 GENERAL API limiter (relaxed)
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: process.env.NODE_ENV === "development" ? 1000 : 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
+/* =========================
+   HEALTH CHECK
+========================= */
+app.get("/", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "LinkUp backend is running 🚀",
+  });
+});
 
-/* Auth Routes */
-app.use("/api/auth", authRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/posts", postRoutes);
-app.use("/api/stories", storyRoutes);
-app.use("/api/highlights", highlightRoutes);
-app.use("/api/notifications", notificationRoutes);
-app.use("/api/messages", messageRoutes);
-/* Swagger Docs */
+/* =========================
+   ROUTES
+========================= */
+app.use("/api/auth", authLimiter, authRoutes);
+
+app.use("/api/users", apiLimiter, userRoutes);
+app.use("/api/posts", apiLimiter, postRoutes);
+app.use("/api/stories", apiLimiter, storyRoutes);
+app.use("/api/highlights", apiLimiter, highlightRoutes);
+app.use("/api/notifications", apiLimiter, notificationRoutes);
+app.use("/api/messages", apiLimiter, messageRoutes);
+
+/* =========================
+   SWAGGER DOCS
+========================= */
 app.use(
   "/api/docs",
   swaggerUi.serve,
   swaggerUi.setup(swaggerSpec)
 );
 
-
-
-
-/* Error Middlewares */
+/* =========================
+   ERROR HANDLING
+========================= */
 app.use(notFound);
 app.use(errorHandler);
 

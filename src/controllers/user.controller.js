@@ -30,10 +30,15 @@ export const followUser = asyncHandler(async (req, res) => {
     throw new Error("User not found");
   }
 
-  if (currentUser.following.includes(targetUserId)) {
-    res.status(400);
-    throw new Error("Already following this user");
-  }
+  const alreadyFollowing = currentUser.following.some(
+  (id) => id.toString() === targetUserId
+);
+
+if (alreadyFollowing) {
+  res.status(400);
+  throw new Error("Already following this user");
+}
+
 
   currentUser.following.push(targetUserId);
   targetUser.followers.push(currentUserId);
@@ -69,19 +74,22 @@ export const searchUsers = asyncHandler(async (req, res) => {
   const { q } = req.query;
   const userId = req.user._id;
 
-  if (!q) {
-    return res.status(200).json({
-      success: true,
-      users: [],
-    });
+  let query = {
+    _id: { $ne: userId },
+  };
+
+  if (q && q.trim() !== "") {
+    query.$or = [
+      { username: { $regex: q, $options: "i" } },
+      { name: { $regex: q, $options: "i" } },
+      { bio: { $regex: q, $options: "i" } },
+      { location: { $regex: q, $options: "i" } },
+    ];
   }
 
-  const users = await User.find({
-    username: { $regex: q, $options: "i" },
-    _id: { $ne: userId },
-  })
+  const users = await User.find(query)
     .select("username name avatar bio tagline location")
-    .limit(10);
+    .limit(20);
 
   res.status(200).json({
     success: true,
@@ -179,13 +187,12 @@ export const updateMyProfile = asyncHandler(async (req, res) => {
    ========================= */
 export const getMyFollowers = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id)
-    .populate("followers", "username name avatar bio")
-    .select("followers");
+    .populate("followers", "username name avatar bio location");
 
   res.status(200).json({
     success: true,
+    users: user.followers,
     count: user.followers.length,
-    followers: user.followers,
   });
 });
 
@@ -194,13 +201,12 @@ export const getMyFollowers = asyncHandler(async (req, res) => {
    ========================= */
 export const getMyFollowing = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id)
-    .populate("following", "username name avatar bio")
-    .select("following");
+    .populate("following", "username name avatar bio location");
 
   res.status(200).json({
     success: true,
+    users: user.following,   // 🔥 IMPORTANT
     count: user.following.length,
-    following: user.following,
   });
 });
 

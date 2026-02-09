@@ -51,6 +51,44 @@ export const sendMessage = asyncHandler(async (req, res) => {
 });
 
 /* =========================
+   GET OR CREATE CONVERSATION
+   ========================= */
+export const getOrCreateConversation = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const myUserId = req.user._id;
+
+  // Prevent self-chat
+  if (userId.toString() === myUserId.toString()) {
+    res.status(400);
+    throw new Error("Cannot start conversation with yourself");
+  }
+
+  let conversation = await Conversation.findOne({
+    participants: { $all: [myUserId, userId] },
+  })
+    .populate("participants", "username avatar")
+    .populate("lastMessage");
+
+  if (!conversation) {
+    conversation = await Conversation.create({
+      participants: [myUserId, userId],
+    });
+
+    conversation = await conversation.populate(
+      "participants",
+      "username avatar"
+    );
+  }
+
+  res.status(200).json({
+    success: true,
+    conversation,
+  });
+});
+
+
+
+/* =========================
    GET TOTAL UNREAD COUNT
    ========================= */
 export const getTotalUnreadCount = asyncHandler(async (req, res) => {

@@ -9,9 +9,24 @@ const storySchema = new mongoose.Schema(
       index: true,
     },
 
-    media: {
-      type: String, // image/video URL
+    type: {
+      type: String,
+      enum: ["text", "image"],
       required: true,
+    },
+
+    text: {
+      type: String,
+      maxlength: 300,
+    },
+
+    bgColor: {
+      type: String,
+      default: "#8B5CF6",
+    },
+
+    media: {
+      type: String,
     },
 
     viewers: [
@@ -23,20 +38,11 @@ const storySchema = new mongoose.Schema(
 
     expiresAt: {
       type: Date,
-      required: true,
-      index: { expires: 0 }, // TTL index (Mongo auto-deletes)
+      default: () => new Date(Date.now() + 24 * 60 * 60 * 1000),
+      index: { expires: 0 },
     },
   },
   { timestamps: true }
 );
 
-// Set expiry to 24 hours on create
-storySchema.pre("save", function (next) {
-  if (!this.expiresAt) {
-    this.expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  }
-  next();
-});
-
-const Story = mongoose.model("Story", storySchema);
-export default Story;
+export default mongoose.model("Story", storySchema);

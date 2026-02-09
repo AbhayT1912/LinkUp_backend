@@ -10,26 +10,31 @@ import { emitNotification } from "../socket.js";
 export const createPost = asyncHandler(async (req, res) => {
   const { caption } = req.body;
 
-  if (!req.files || !req.files.length) {
-    res.status(400);
-    throw new Error("Post must contain media");
-  }
+  if (!caption && (!req.files || !req.files.length)) {
+  res.status(400);
+  throw new Error("Post must contain text or media");
+}
 
-  const mediaUploads = [];
 
-  for (const file of req.files) {
-    const uploaded = await uploadToCloudinary(
-      file,
-      "linkup/posts"
-    );
-    mediaUploads.push(uploaded.secure_url);
-  }
+  const mediaUploads = req.files
+  ? await Promise.all(
+      req.files.map(file =>
+        uploadToCloudinary(file, "linkup/posts").then(r => r.secure_url)
+      )
+    )
+  : [];
 
-  const post = await Post.create({
-    user: req.user._id,
-    caption,
-    media: mediaUploads,
-  });
+
+  const postType =
+  mediaUploads.length > 0 ? "image" : "text";
+
+const post = await Post.create({
+  user: req.user._id,
+  caption,
+  type: postType,
+  media: mediaUploads,
+});
+
 
   res.status(201).json({
     success: true,
@@ -55,11 +60,11 @@ export const getFeedPosts = asyncHandler(async (req, res) => {
 
   const currentUser = req.user;
 
-  // Users whose posts should appear in feed
-  const feedUserIds = [
-    currentUser._id,
-    ...currentUser.following,
-  ];
+  const following = Array.isArray(currentUser.following)
+    ? currentUser.following
+    : [];
+
+  const feedUserIds = [currentUser._id, ...following];
 
   const totalPosts = await Post.countDocuments({
     user: { $in: feedUserIds },
@@ -71,17 +76,25 @@ export const getFeedPosts = asyncHandler(async (req, res) => {
     .populate("user", "username avatar")
     .sort({ createdAt: -1 })
     .skip(skip)
-    .limit(limit);
+    .limit(limit)
+    .lean();
+
+  // ✅ ADD currentUserId for frontend
+  const enrichedPosts = posts.map((post) => ({
+    ...post,
+    currentUserId: currentUser._id.toString(),
+  }));
 
   res.status(200).json({
     success: true,
     page,
     totalPages: Math.ceil(totalPosts / limit),
     totalPosts,
-    count: posts.length,
-    posts,
+    count: enrichedPosts.length,
+    posts: enrichedPosts,
   });
 });
+
 
 
 
@@ -91,9 +104,16 @@ export const getFeedPosts = asyncHandler(async (req, res) => {
 export const getPostsByUser = asyncHandler(async (req, res) => {
   const { userId } = req.params;
 
-  const posts = await Post.find({ user: userId })
-    .populate("user", "username avatar")
-    .sort({ createdAt: -1 });
+ const page = Number(req.query.page) || 1;
+const limit = Number(req.query.limit) || 10;
+const skip = (page - 1) * limit;
+
+const posts = await Post.find({ user: userId })
+  .populate("user", "username avatar")
+  .sort({ createdAt: -1 })
+  .skip(skip)
+  .limit(limit);
+
 
   res.status(200).json({
     success: true,
@@ -137,15 +157,18 @@ export const addComment = asyncHandler(async (req, res) => {
     post: post._id,
   });
 }
-emitNotification(post.user, {
-  type: "comment",
-  postId: post._id,
-  actor: {
-    id: req.user._id,
-    username: req.user.username,
-    avatar: req.user.avatar,
-  },
-});
+if (post.user.toString() !== req.user._id.toString()) {
+  emitNotification(post.user, {
+    type: "comment",
+    postId: post._id,
+    actor: {
+      id: req.user._id,
+      username: req.user.username,
+      avatar: req.user.avatar,
+    },
+  });
+}
+
 
 
   res.status(201).json({
@@ -179,9 +202,10 @@ export const getPostComments = asyncHandler(async (req, res) => {
 
   const totalComments = post.comments.length;
 
-  const comments = post.comments
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(skip, skip + limit);
+  const comments = [...post.comments]
+  .sort((a, b) => b.createdAt - a.createdAt)
+  .slice(skip, skip + limit);
+
 
   res.status(200).json({
     success: true,
@@ -232,7 +256,6 @@ export const deleteComment = asyncHandler(async (req, res) => {
 
 
 
-
 /* =========================
    LIKE / UNLIKE POST
    ========================= */
@@ -247,14 +270,17 @@ export const toggleLikePost = asyncHandler(async (req, res) => {
     throw new Error("Post not found");
   }
 
-  const isLiked = post.likes.includes(userId);
+  const isLiked = post.likes.some(
+  id => id.toString() === userId
+);
+
 
   if (isLiked) {
     post.likes = post.likes.filter(
       (id) => id.toString() !== userId
     );
   } else {
-    post.likes.push(userId);
+    post.likes.push(req.user._id);
   }
 
   await post.save();
@@ -269,21 +295,25 @@ export const toggleLikePost = asyncHandler(async (req, res) => {
     });
   }
 
+  if (!isLiked && post.user.toString() !== userId) {
   emitNotification(post.user, {
-  type: "like",
-  postId: post._id,
-  actor: {
-    id: userId,
-    username: req.user.username,
-    avatar: req.user.avatar,
-  },
-});
+    type: "like",
+    postId: post._id,
+    actor: {
+      id: userId,
+      username: req.user.username,
+      avatar: req.user.avatar,
+    },
+  });
+}
+
 
 
   res.status(200).json({
     success: true,
     message: isLiked ? "Post unliked" : "Post liked",
     likesCount: post.likes.length,
+     liked: !isLiked, 
   });
 });
 

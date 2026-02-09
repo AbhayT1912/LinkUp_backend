@@ -44,7 +44,7 @@ router.get("/feed", protect, getFeedPosts);
  * @swagger
  * /api/posts:
  *   post:
- *     summary: Create a new post
+ *     summary: Create a new post (text-only or media-based)
  *     tags: [Posts]
  *     security:
  *       - bearerAuth: []
@@ -54,8 +54,6 @@ router.get("/feed", protect, getFeedPosts);
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required:
- *               - media
  *             properties:
  *               caption:
  *                 type: string
@@ -111,7 +109,7 @@ router.post("/:postId/like", protect, toggleLikePost);
  *       200:
  *         description: User posts fetched successfully
  */
-router.get("/user/:userId", getPostsByUser);
+router.get("/user/:userId", protect, getPostsByUser);
 
 /**
  * @swagger
